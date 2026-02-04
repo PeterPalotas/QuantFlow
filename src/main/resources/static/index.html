@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>AlgoDash</title>
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+    <style>
+        body { background-color: #121212; color: white; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; text-align: center; margin: 0; padding: 20px; box-sizing: border-box; }
+        .main-container { max-width: 1200px; margin: 0 auto; width: 100%; }
+
+        .card { background-color: #1e1e1e; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
+        .wallet-grid { display: flex; justify-content: space-around; margin-top: 15px; border-top: 1px solid #333; padding-top: 15px; }
+        .stat-label { color: #888; font-size: 0.9em; text-transform: uppercase; }
+        .stat-value { font-size: 1.2em; font-weight: 600; color: #ddd; }
+        #price-display { font-size: 2.5em; font-weight: bold; margin: 10px 0; }
+        #signal-display { font-size: 1.5em; margin-bottom: 20px; font-weight: bold; letter-spacing: 1px; }
+
+        .dashboard-row { display: flex; gap: 20px; height: 60vh; }
+        .history-panel { flex: 1; background-color: #1e1e1e; border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; }
+        .history-list { flex: 1; overflow-y: auto; padding: 10px; }
+        .chart-panel { flex: 3; background-color: #1e1e1e; border-radius: 8px; padding: 10px; position: relative; }
+        .trade-item { display: flex; justify-content: space-between; padding: 8px; border-bottom: 1px solid #333; font-size: 0.9em; }
+
+        .toolbar {
+            position: absolute;
+            top: 15px;
+            right: 20px;
+            z-index: 10;
+            background: rgba(0,0,0,0.3);
+            border-radius: 4px;
+            padding: 2px;
+        }
+        .tf-btn {
+            background: none;
+            border: none;
+            color: #888;
+            padding: 5px 10px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 0.8em;
+            transition: 0.2s;
+        }
+        .tf-btn:hover { color: white; }
+        .tf-btn.active { color: #00E396; border-bottom: 2px solid #00E396; }
+
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #1e1e1e; }
+        ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+    </style>
+</head>
+<body>
+
+<div class="main-container">
+
+    <h1>AlgoDash</h1>
+    <div id="price-display">Connecting...</div>
+    <div id="signal-display">---</div>
+
+    <div class="card">
+        <h2 style="margin: 0 0 5px 0; font-size: 1em; color: #888; text-transform: uppercase;">Total Portfolio</h2>
+        <div id="portfolio-display" style="font-size: 3em; font-weight: bold; color: #4caf50;">$1000.00</div>
+        <div class="wallet-grid">
+            <div>
+                <div class="stat-label">Cash Available</div>
+                <div id="cash-display" class="stat-value">$1000.00</div>
+            </div>
+            <div>
+                <div class="stat-label">Bitcoin Held</div>
+                <div id="crypto-display" class="stat-value">0.0000 BTC</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card" style="margin-top: 10px; padding: 15px;">
+        <h2 style="margin: 0 0 10px 0; font-size: 0.9em; color: #888; text-transform: uppercase; letter-spacing: 1px;">
+            Risk & Performance Metrics
+        </h2>
+        <div style="display: flex; justify-content: space-between; text-align: center;">
+            <div>
+                <div class="stat-label">Win Rate</div>
+                <div id="winrate-display" class="stat-value" style="color: #00E396;">0%</div>
+                <div style="font-size: 0.8em; color: #666;" id="trades-display">0W - 0L</div>
+            </div>
+            <div>
+                <div class="stat-label">Profit Factor</div>
+                <div id="pf-display" class="stat-value">0.00</div>
+            </div>
+            <div>
+                <div class="stat-label">Max Drawdown</div>
+                <div id="dd-display" class="stat-value" style="color: #ff4444;">0.00%</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="dashboard-row">
+        <div class="history-panel">
+            <div style="padding: 15px; border-bottom: 1px solid #333; color: #888; font-weight: bold;">
+                TRADE LOG
+            </div>
+            <div id="trade-list" class="history-list">
+                <div style="text-align: center; margin-top: 20px; color: #555;">Waiting for trades...</div>
+            </div>
+        </div>
+
+        <div class="chart-panel">
+            <div class="toolbar">
+                <button class="tf-btn active" onclick="setTimeframe(5000, this)">5s</button>
+                <button class="tf-btn" onclick="setTimeframe(15000, this)">15s</button>
+                <button class="tf-btn" onclick="setTimeframe(60000, this)">1m</button>
+            </div>
+            <div id="apexChart"></div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    //APEXCharts config
+    const options = {
+        chart: {
+            type: 'candlestick',
+            height: '100%',
+            backgroundColor: '#1e1e1e',
+            animations: { enabled: false },
+            toolbar: { show: false }
+        },
+        theme: { mode: 'dark' },
+        series: [],
+        stroke: { width: 2, curve: 'smooth' },
+        colors: ['#00E396', '#ffa500', '#00B746', '#FF4560', '#775DD0'],
+        plotOptions: {
+            candlestick: {
+                colors: { upward: '#00B746', downward: '#EF403C' },
+                wick: { useFillColor: true }
+            }
+        },
+        xaxis: {
+            type: 'datetime',
+            tooltip: { enabled: false },
+            axisBorder: { show: false },
+            axisTicks: { show: false }
+        },
+        yaxis: {
+            tooltip: { enabled: true },
+            opposite: true,
+            labels: { formatter: (value) => { return "$" + value.toFixed(0) } }
+        },
+        grid: { borderColor: '#333', strokeDashArray: 3 },
+        annotations: { points: [] }
+    };
+
+    const chart = new ApexCharts(document.querySelector("#apexChart"), options);
+    chart.render();
+
+
+    let liveTicks = [];         //Stores raw ticks (for indicators/5s chart)
+    let historicalCandles = []; //Stores perfect 1m candles (for 1m chart)
+    let candleData = [];        //The actual data given to the chart
+
+    let indicatorSeries = {};
+    let currentCandle = { x: null, o: null, h: null, l: null, c: null };
+    let lastTradeCount = 0;
+
+    let CANDLE_INTERVAL = 5000;
+    const MAX_CANDLES = 100;
+    //timeframe switching
+    function setTimeframe(ms, btn) {
+        CANDLE_INTERVAL = ms;
+
+        document.querySelectorAll('.tf-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+
+
+        rebuildCandles();
+    }
+
+    function rebuildCandles() {
+        candleData = [];
+        indicatorSeries = {};
+        currentCandle = { x: null, o: null, h: null, l: null, c: null };
+
+        //if we are on the 1-Minute timeframe, we use the perfect OHLC history. Ill change this later to translate to all timeframes
+        if (CANDLE_INTERVAL === 60000 && historicalCandles.length > 0) {
+            candleData = [...historicalCandles];
+
+            //set the start time for the next candle so we don't overwrite history
+            const lastTime = historicalCandles[historicalCandles.length - 1].x;
+            currentCandle.x = lastTime + 60000;
+        }
+
+        for (const tick of liveTicks) {
+
+            if (tick.isHistory === false) {
+                processCandleLogic(tick.price, tick.timestamp);
+            }
+
+            if (tick.indicators) {
+                for (const [name, value] of Object.entries(tick.indicators)) {
+                    updateIndicator(name, value, tick.timestamp);
+                }
+            }
+        }
+
+        updateChartSeries();
+    }
+
+    function processCandleLogic(price, timestamp) {
+
+        if (!currentCandle.x || currentCandle.h === null) {
+
+            const alignedTime = Math.floor(timestamp / CANDLE_INTERVAL) * CANDLE_INTERVAL;
+            currentCandle = { x: alignedTime, o: price, h: price, l: price, c: price };
+        }
+
+        //check if we moved to next candle
+        else if (timestamp >= currentCandle.x + CANDLE_INTERVAL) {
+            //close old candle
+            candleData.push({
+                x: currentCandle.x,
+                y: [currentCandle.o, currentCandle.h, currentCandle.l, currentCandle.c]
+            });
+            //start new candle
+            const alignedTime = Math.floor(timestamp / CANDLE_INTERVAL) * CANDLE_INTERVAL;
+            currentCandle = { x: alignedTime, o: price, h: price, l: price, c: price };
+        } else {
+            //update current
+            currentCandle.h = Math.max(currentCandle.h, price);
+            currentCandle.l = Math.min(currentCandle.l, price);
+            currentCandle.c = price;
+        }
+
+        //keep array size manageable otherwise it could crash the browser .shift() removes the first item in the queue to make space for a new one at the end
+        if (candleData.length > MAX_CANDLES) candleData.shift();
+    }
+
+    function updateIndicator(name, value, timestamp) {
+        const alignTime = currentCandle.x || timestamp;
+
+        if (!indicatorSeries[name]) indicatorSeries[name] = [];
+        const seriesData = indicatorSeries[name];
+
+        if (seriesData.length > 0) {
+            const lastPoint = seriesData[seriesData.length - 1];
+            if (lastPoint.x === alignTime) {
+                lastPoint.y = value;
+            } else {
+                seriesData.push({ x: alignTime, y: value });
+            }
+        } else {
+            seriesData.push({ x: alignTime, y: value });
+        }
+
+        if (seriesData.length > MAX_CANDLES + 1) seriesData.shift();
+    }
+
+    function updateChartSeries() {
+        let finalSeries = [{
+            name: 'Price',
+            type: 'candlestick',
+            data: [...candleData]
+        }];
+
+        //append current live candle if it exists
+        if (currentCandle.x) {
+            finalSeries[0].data.push({
+                x: currentCandle.x,
+                y: [currentCandle.o, currentCandle.h, currentCandle.l, currentCandle.c]
+            });
+        }
+
+        //append indicators
+        for (const [name, dataPoints] of Object.entries(indicatorSeries)) {
+            finalSeries.push({ name: name, type: 'line', data: dataPoints });
+        }
+
+        chart.updateSeries(finalSeries);
+    }
+
+    async function fetchHistory() {
+        try {
+            console.log("Fetching history...");
+            const response = await fetch('http://localhost:8080/history');
+
+            if (response.ok) {
+                const history = await response.json();
+
+                if (history && history.length > 0) {
+                    console.log("Loaded " + history.length + " historical candles.");
+
+                    historicalCandles = history.map(c => ({
+                        x: c.openTime,
+                        y: [c.open, c.high, c.low, c.close]
+                    }));
+
+                    const historyAsTicks = history.map(c => ({
+                        price: c.close,
+                        timestamp: c.openTime,
+                        indicators: {},
+                        isHistory: true
+                    }));
+
+                    liveTicks = [...historyAsTicks, ...liveTicks];
+
+                    rebuildCandles();
+                }
+            }
+        } catch (e) {
+            console.error("History Error:", e);
+        }
+    }
+    fetchHistory();
+
+
+    setInterval(async () => {
+        try {
+            const response = await fetch('http://localhost:8080/price');
+            if (!response.ok) return;
+
+            const data = await response.json();
+
+            //check if server is ready
+            if (!data || !data.tick || data.tick.price <= 0) {
+                if (document.getElementById('price-display').innerText === "Connecting...") {
+                     document.getElementById('price-display').innerText = "Warming Up...";
+                }
+                return;
+            }
+
+            const tick = data.tick;
+
+            liveTicks.push({
+                price: tick.price,
+                timestamp: tick.timestamp,
+                indicators: data.indicators,
+                isHistory: false //this is real live data
+            });
+
+            //keep memory clean(store max 5000 ticks)
+            if (liveTicks.length > 5000) liveTicks.shift();
+
+
+            document.getElementById('price-display').innerText = "$" + tick.price.toFixed(2);
+            document.getElementById('signal-display').innerText = "SIGNAL: " + data.signal;
+            document.getElementById('signal-display').style.color = data.color;
+            document.getElementById('portfolio-display').innerText = "$" + data.portfolioValue.toFixed(2);
+            document.getElementById('cash-display').innerText = "Cash: $" + data.cash.toFixed(2);
+            document.getElementById('crypto-display').innerText = "BTC: " + data.crypto.toFixed(8);
+
+            document.getElementById('winrate-display').innerText = (data.winRate * 100).toFixed(1) + "%";
+            document.getElementById('trades-display').innerText = data.wins + "W - " + data.losses + "L";
+            document.getElementById('pf-display').innerText = data.profitFactor.toFixed(2);
+            document.getElementById('dd-display').innerText = "-" + (data.maxDrawdown * 100).toFixed(2) + "%";
+
+            const trades = data.trades;
+            if (trades && trades.length > lastTradeCount) {
+                const listContainer = document.getElementById('trade-list');
+                listContainer.innerHTML = "";
+                [...trades].slice(-50).reverse().forEach(trade => {
+                    const time = new Date(trade.timestamp).toLocaleTimeString();
+                    const tColor = trade.type === "BUY" ? "#00E396" : "#FF4560";
+                    const fee = trade.fee ? trade.fee.toFixed(2) : "0.00";
+
+                    let pnlHtml = "";
+                    if (trade.type === "SELL") {
+                         const pColor = trade.pnl >= 0 ? "#00E396" : "#FF4560";
+                         const sign = trade.pnl >= 0 ? "+" : "";
+                         pnlHtml = `<div style="color: ${pColor}; font-weight: bold; font-size: 0.9em;">PnL: ${sign}$${trade.pnl.toFixed(2)}</div>`;
+                    }
+
+                    listContainer.innerHTML += `
+                        <div class="trade-item" style="align-items: center;">
+                            <div style="text-align: left;">
+                                <div style="color:${tColor}; font-weight:bold;">${trade.type}</div>
+                                <div style="color:#666; font-size:0.75em;">${time}</div>
+                            </div>
+                            <div style="text-align: right;">
+                                <div style="font-size: 0.9em;">$${trade.price.toFixed(0)}</div>
+                                <div style="color: #888; font-size: 0.75em;">Fee: $${fee}</div>
+                                ${pnlHtml}
+                            </div>
+                        </div>`;
+
+                    if (trades.indexOf(trade) >= lastTradeCount && candleData.length > 0) {
+                        try {
+                            chart.addPointAnnotation({
+                                x: trade.timestamp,
+                                y: trade.price,
+                                marker: { size: 6, fillColor: tColor, strokeColor: '#fff', radius: 2 },
+                            });
+                        } catch(e) {}
+                    }
+                });
+                lastTradeCount = trades.length;
+            }
+
+            processCandleLogic(tick.price, tick.timestamp);
+
+            if (data.indicators) {
+                for (const [name, value] of Object.entries(data.indicators)) {
+                    updateIndicator(name, value, tick.timestamp);
+                }
+            }
+
+            updateChartSeries();
+
+        } catch (error) {
+            console.error("API Error:", error);
+        }
+    }, 1000);
+</script>
+</body>
+</html>
