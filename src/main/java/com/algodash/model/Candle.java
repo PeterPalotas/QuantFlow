@@ -16,13 +16,14 @@ public class Candle {
     private boolean isClosed;
 
     //constructor for Historical Data (Open, High, Low, Close known)
-    public Candle(long openTime, double open, double high, double low, double close) {
+    public Candle(long openTime, double open, double high, double low, double close, double volume) {
         this.openTime = openTime;
         this.closeTime = openTime + 60000; // Assume 1 minute for history
         this.open = open;
         this.high = high;
         this.low = low;
         this.close = close;
+        this.volume = volume;
         this.isClosed = true;
     }
 
@@ -57,4 +58,5 @@ public class Candle {
     public double getLow() { return low; }
     public double getClose() { return close; }
     public long getCloseTime() { return closeTime; }
+    public double getVolume() { return volume; }
 }

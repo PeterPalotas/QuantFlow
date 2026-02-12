@@ -1,7 +1,6 @@
 package com.algodash.controller;
 
-import com.algodash.model.Tick;
-import com.algodash.service.BinanceService;
+import com.algodash.service.BinanceDataService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -17,7 +16,7 @@ import com.algodash.model.Candle;
 public class HistoryController {
 
     @Autowired
-    private BinanceService binanceService;
+    private BinanceDataService binanceService;
 
     @CrossOrigin
     @GetMapping("/history")
