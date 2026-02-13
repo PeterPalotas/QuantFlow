@@ -3,13 +3,14 @@ package com.algodash.service;
 import com.algodash.model.Candle;
 import com.algodash.model.StrategyResult;
 import com.algodash.model.Tick;
+import com.algodash.model.TimeFrame;
 import com.algodash.strategy.TradingStrategy;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
-
+import java.util.Map;
 
 
 /**
@@ -21,7 +22,6 @@ import java.util.List;
 @Service
 public class TradingEngineService {
 
-    // Note: The application will not run until BinanceDataService is created.
     @Autowired
     private BinanceDataService dataService;
 
@@ -34,9 +34,15 @@ public class TradingEngineService {
     @Autowired
     private TradingStrategy strategy;
 
+    @Autowired
+    private BarAggregatorService barAggregatorService;
+
     @PostConstruct
     public void startEngine() {
         System.out.println("🚀 Trading Engine starting...");
+
+        // set the callback for the BarAggregatorService first
+        barAggregatorService.setOnBarCloseCallback(this::onBarClosed);
 
         //Fetch history from the Data Service and warm up the strategy
         List<Candle> history = dataService.fetchHistoricalCandles();
@@ -64,16 +70,31 @@ public class TradingEngineService {
         dataService.startLiveStream(this::onTickReceived);
     }
 
-    // This is the core logic loop for every live tick received.
+    // This method receives ticks from the BinanceDataService and feeds them to the BarAggregatorService.
     private void onTickReceived(Tick tick) {
+        // 1. Perform a lightweight dashboard update for live price action
+        dashboardStateService.updateLiveTick(tick);
 
+        // 2. Feed the tick to the bar aggregator to check if a bar has closed
+        barAggregatorService.addTick(tick);
+    }
 
-        strategy.update(tick);
+    // This method is the callback from BarAggregatorService when a bar closes.
+    private void onBarClosed(Map.Entry<Candle, TimeFrame> barEntry) {
+        Candle closedBar = barEntry.getKey();
+        TimeFrame timeFrame = barEntry.getValue();
 
-        StrategyResult result = strategy.analyze(tick);
+        System.out.printf("📊 %s Bar Closed: Open=%.2f, High=%.2f, Low=%.2f, Close=%.2f%n",
+                timeFrame.name(), closedBar.getOpen(), closedBar.getHigh(), closedBar.getLow(), closedBar.getClose());
 
-        portfolioService.processSignal(result.getSignal(), tick.getPrice(), 150.0);
+        // Call the strategy's onCandleClose method for decision making (there should be no trading decisions in ontick/update)
+        StrategyResult result = strategy.onCandleClose(closedBar, timeFrame);
 
-        dashboardStateService.updateState(tick, result);
+        //act on the signal (if any)
+        portfolioService.processSignal(result.getSignal(), closedBar.getClose(), 150.0);
+
+        // Note: The dashboard state uses the latest TICK for display, not the closed bar.
+        // We'll pass a Tick representation of the closed bar's close price for the DashboardState update.
+        dashboardStateService.updateState(new Tick(closedBar.getCloseTime(), closedBar.getClose(), 0), result);
     }
 }

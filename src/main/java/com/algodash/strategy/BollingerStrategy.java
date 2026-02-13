@@ -1,6 +1,7 @@
 package com.algodash.strategy;
 
 import com.algodash.indicators.BollingerBand;
+import com.algodash.model.Candle;
 import com.algodash.model.StrategyResult;
 import com.algodash.model.Tick;
 import com.algodash.model.TimeFrame;
@@ -10,7 +11,7 @@ import org.springframework.stereotype.Component;
 
 //An example of a strategy.
 //Buys when the prie goes below the bottom bollinger
-//sells when price goes above the top bollinger.
+//sells when price goes above the top bolliner.
 
 //This is a simple example botfor the current state of the project.
 //I want to make scripting bots easier, so i will get rid of the nesceccity to detect if a candle just closed
@@ -20,10 +21,7 @@ import org.springframework.stereotype.Component;
 @Primary
 public class BollingerStrategy implements TradingStrategy {
 
-    private final BarSeries series = new BarSeries(TimeFrame.M1);
     private final BollingerBand bb = new BollingerBand(20, 2.0);
-
-    private boolean candleJustClosed = false;
 
     @Override
     public String getName() {
@@ -32,24 +30,29 @@ public class BollingerStrategy implements TradingStrategy {
 
     @Override
     public void update(Tick tick) {
-
-        candleJustClosed = series.addTick(tick);
-
-        //Update indicators if we have a new closed candle
-        if (candleJustClosed) {
-            double closePrice = series.getLastClosedCandle().getClose();
-            bb.update(closePrice);
+        // The 'update' method is jus used for warming up indicators with historical data.
+        // For this strategy, the main logic is on candle close
+        // We check if the price is valid to avoid updating indicators with dummy ticks.
+        // I GENERALLY DO NOT RECCOMMEND TRADING IN THE UPDATE CLASS. its ultra-high frequency and false positives may occur
+        if (tick.getPrice() > 0) {
+            bb.update(tick.getPrice());
         }
     }
 
-    //Runs only during live trading.
     @Override
-    public StrategyResult analyze(Tick tick) {
-        String signal = "HOLD";
+    public StrategyResult onCandleClose(Candle closedBar, TimeFrame timeFrame) {
+        // This strategy only operates on the 1-minute timeframe.
+        if (timeFrame != TimeFrame.M1) {
+            return new StrategyResult("HOLD");
+        }
 
-        // We only check for trades if a candle JUST closed (and math was updated)
-        if (candleJustClosed && bb.isReady()) {
-            double closePrice = series.getLastClosedCandle().getClose();
+        // The indicator is now updated here for live trading, right before making a decision.
+        // Note: The 'update' method above handles the initial warmup.
+        bb.update(closedBar.getClose());
+
+        String signal = "HOLD";
+        if (bb.isReady()) {
+            double closePrice = closedBar.getClose();
 
             //BUY Logic
             if (closePrice <= bb.getLower()) {
@@ -68,8 +71,7 @@ public class BollingerStrategy implements TradingStrategy {
         //Dashboard Updates
         StrategyResult result = new StrategyResult(signal);
 
-        //We send indicator data every tick so the chart lines are smooth,
-        //even if the value only changes once per minute.
+        // We send indicator data with every result so the chart lines are smooth.
         if (bb.isReady()) {
             result.addIndicator("Middle", bb.getMiddle(), "#ffa500");
             result.addIndicator("Upper", bb.getUpper(), "#00E396");
