@@ -51,6 +51,29 @@ public class DashboardStateService {
         );
 
     }
+
+    /**
+     * Performs a "lightweight" update on every tick to keep the UI's price action live.
+     * It uses the new tick but reuses the last known signal and indicators.
+     * @param tick The latest live tick from the data stream.
+     */
+    public void updateLiveTick(Tick tick) {
+        if (currentState == null) return; // a safety check
+
+        // Update performance metrics with the latest price
+        portfolioService.getWallet().updateDrawdown(portfolioService.getWallet().getTotalValue(tick.getPrice()));
+
+        // Create a new state with the new tick, but reusing the previous signal and indicators
+        currentState = new DashboardState(
+                tick,
+                currentState.getSignal(),
+                currentState.getColor(),
+                portfolioService.getWallet(),
+                currentState.getIndicators(),
+                currentState.getIndicatorColors()
+        );
+    }
+
     /**
      * Updates the current DashboardState based on the latest tick, strategy result.
      * This method will be called by the TradingEngineService.
