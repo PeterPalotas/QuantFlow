@@ -37,6 +37,9 @@ public class TradingEngineService {
     @Autowired
     private BarAggregatorService barAggregatorService;
 
+    @Autowired
+    private Ta4jAdapterService ta4jAdapterService;
+
     @PostConstruct
     public void startEngine() {
         System.out.println("🚀 Trading Engine starting...");
@@ -44,17 +47,24 @@ public class TradingEngineService {
         // set the callback for the BarAggregatorService first
         barAggregatorService.setOnBarCloseCallback(this::onBarClosed);
 
-        //Fetch history from the Data Service and warm up the strategy
+        //Fetch history from the Data Service
         List<Candle> history = dataService.fetchHistoricalCandles();
         System.out.println("📥 Retrieved " + history.size() + " historical candles for warmup.");
-        history.forEach(candle -> {
-            strategy.update(new Tick(candle.getCloseTime(), candle.getClose(), 0));
-        });
-        System.out.println("✅ Strategy is warmed up.");
 
-
-        //Set the initial dashboard state using the last historical price
         if (!history.isEmpty()) {
+            // --- FIX: Exclude the last historical bar from the warmup ---
+            // The last bar from history often overlaps with the first bar created from the live feed.
+            // By excluding it, we let the BarAggregatorService be the source of truth for this bar.
+            List<Candle> warmupHistory = history.subList(0, history.size() - 1);
+
+            // Warm up the strategy and prime the ta4j BarSeries with the partial history
+            warmupHistory.forEach(candle -> {
+                strategy.update(new Tick(candle.getCloseTime(), candle.getClose(), 0));
+                ta4jAdapterService.addBar(candle, TimeFrame.M1); // Assuming M1 for history
+            });
+            System.out.println("✅ Strategy & ta4j indicators are warmed up with " + warmupHistory.size() + " bars.");
+
+            //Set the initial dashboard state using the last historical price from the original full list
             Candle lastCandle = history.get(history.size() - 1);
             Tick historyTick = new Tick(
                     lastCandle.getCloseTime(),
@@ -83,6 +93,9 @@ public class TradingEngineService {
     private void onBarClosed(Map.Entry<Candle, TimeFrame> barEntry) {
         Candle closedBar = barEntry.getKey();
         TimeFrame timeFrame = barEntry.getValue();
+
+        // First, add the newly closed bar to the ta4j series. This updates all ta4j indicators.
+        ta4jAdapterService.addBar(closedBar, timeFrame);
 
         System.out.printf("📊 %s Bar Closed: Open=%.2f, High=%.2f, Low=%.2f, Close=%.2f%n",
                 timeFrame.name(), closedBar.getOpen(), closedBar.getHigh(), closedBar.getLow(), closedBar.getClose());
