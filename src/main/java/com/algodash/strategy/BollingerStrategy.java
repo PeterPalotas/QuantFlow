@@ -1,27 +1,40 @@
 package com.algodash.strategy;
 
-import com.algodash.indicators.BollingerBand;
 import com.algodash.model.Candle;
 import com.algodash.model.StrategyResult;
 import com.algodash.model.Tick;
 import com.algodash.model.TimeFrame;
-import com.algodash.service.BarSeries;
+import com.algodash.service.IndicatorManagerService; // New import
+import org.springframework.beans.factory.annotation.Autowired; // New import if not already there
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
+import org.ta4j.core.num.Num; // New import
 
 //An example of a strategy.
-//Buys when the prie goes below the bottom bollinger
-//sells when price goes above the top bolliner.
+//Buys when the price goes below the bottom bollinger
+//sells when price goes above the top band.
 
-//This is a simple example botfor the current state of the project.
-//I want to make scripting bots easier, so i will get rid of the nesceccity to detect if a candle just closed
-//I aim to create functions like onCandlecClose() which will have a parameter for the closed candle to work with maybe.
-//Very simple for now but its a proof of concept of the dashboard working
+//This is a simple example bot for the current state of the project.
 @Component
 @Primary
 public class BollingerStrategy implements TradingStrategy {
 
-    private final BollingerBand bb = new BollingerBand(20, 2.0);
+    @Autowired
+    private IndicatorManagerService indicatorManager; // Inject the new manager
+
+    // Define unique names for our indicators
+    private static final String BB_NAME = "BollingerBands_M1";
+    private static final int BB_BAR_COUNT = 20;
+    private static final double BB_MULTIPLIER = 2.0;
+
+    // Constructor to register indicators
+    @Autowired
+    public BollingerStrategy(IndicatorManagerService indicatorManager) {
+        this.indicatorManager = indicatorManager;
+        // Register the Bollinger Bands this strategy needs
+        indicatorManager.registerBollingerBands(BB_NAME, TimeFrame.M1, BB_BAR_COUNT, BB_MULTIPLIER);
+    }
+
 
     @Override
     public String getName() {
@@ -30,52 +43,49 @@ public class BollingerStrategy implements TradingStrategy {
 
     @Override
     public void update(Tick tick) {
-        // The 'update' method is jus used for warming up indicators with historical data.
-        // For this strategy, the main logic is on candle close
-        // We check if the price is valid to avoid updating indicators with dummy ticks.
-        // I GENERALLY DO NOT RECCOMMEND TRADING IN THE UPDATE CLASS. its ultra-high frequency and false positives may occur
-        if (tick.getPrice() > 0) {
-            bb.update(tick.getPrice());
-        }
+        // The 'update' method's primary role is now for warming up (if needed)
+        // or for tick-based strategies. For Bollinger Bands, ta4j handles
+        // updating when a bar is added to its series, so this method is empty.
     }
 
     @Override
     public StrategyResult onCandleClose(Candle closedBar, TimeFrame timeFrame) {
-        // This strategy only operates on the 1-minute timeframe.
+        //this strategy only operates on the 1minute timeframe.
         if (timeFrame != TimeFrame.M1) {
             return new StrategyResult("HOLD");
         }
 
-        // The indicator is now updated here for live trading, right before making a decision.
-        // Note: The 'update' method above handles the initial warmup.
-        bb.update(closedBar.getClose());
+        // Retrieve the indicator values from the manager
+        Num middle = indicatorManager.getValue(BB_NAME + "_middle");
+        Num upper = indicatorManager.getValue(BB_NAME + "_upper");
+        Num lower = indicatorManager.getValue(BB_NAME + "_lower");
 
         String signal = "HOLD";
-        if (bb.isReady()) {
+        if (middle != null && upper != null && lower != null) {
             double closePrice = closedBar.getClose();
 
             //BUY Logic
-            if (closePrice <= bb.getLower()) {
+            if (closePrice <= lower.doubleValue()) {
                 signal = "BUY";
                 System.out.printf("[%s] BUY SIGNAL: Closed $%.2f below Lower Band $%.2f%n",
-                        getName(), closePrice, bb.getLower());
+                        getName(), closePrice, lower.doubleValue());
             }
             //SELL Logic
-            else if (closePrice >= bb.getUpper()) {
+            else if (closePrice >= upper.doubleValue()) {
                 signal = "SELL";
                 System.out.printf("[%s] SELL SIGNAL: Closed $%.2f above Upper Band $%.2f%n",
-                        getName(), closePrice, bb.getUpper());
+                        getName(), closePrice, upper.doubleValue());
             }
         }
 
         //Dashboard Updates
         StrategyResult result = new StrategyResult(signal);
 
-        // We send indicator data with every result so the chart lines are smooth.
-        if (bb.isReady()) {
-            result.addIndicator("Middle", bb.getMiddle(), "#ffa500");
-            result.addIndicator("Upper", bb.getUpper(), "#00E396");
-            result.addIndicator("Lower", bb.getLower(), "#FF4560");
+        //send indicator data with every result so the chart lines are smooth.
+        if (middle != null && upper != null && lower != null) {
+            result.addIndicator("Middle", middle.doubleValue(), "#ffa500");
+            result.addIndicator("Upper", upper.doubleValue(), "#00E396");
+            result.addIndicator("Lower", lower.doubleValue(), "#FF4560");
         }
 
         return result;
